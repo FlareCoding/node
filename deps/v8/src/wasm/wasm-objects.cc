@@ -14,6 +14,7 @@
 #include "src/wasm/wasm-objects.h"
 
 #include <optional>
+#include <chrono>
 
 #include "src/base/iterator.h"
 #include "src/base/vector.h"
@@ -911,6 +912,17 @@ void SetInstanceMemory(Tagged<WasmTrustedInstanceData> trusted_instance_data,
 DirectHandle<WasmMemoryObject> WasmMemoryObject::New(
     Isolate* isolate, DirectHandle<JSArrayBuffer> buffer, int maximum,
     wasm::AddressType address_type) {
+
+  // ---------- TRACE ----------
+  //const size_t pages = static_cast<size_t>(buffer->byte_length()) / wasm::kWasmPageSize;
+
+  // printf(
+  //   "[WASM-TRACE] Memory created -> %zu pages (%zu bytes) "
+  //   "(max = %d pages, %s)\n",
+  //   pages, buffer->byte_length(), maximum,
+  //   address_type == wasm::AddressType::kI64 ? "mem64" : "mem32"
+  // );
+
   DirectHandle<JSFunction> memory_ctor(
       isolate->native_context()->wasm_memory_constructor(), isolate);
 
@@ -959,6 +971,9 @@ MaybeDirectHandle<WasmMemoryObject> WasmMemoryObject::New(
 
   if (initial > engine_maximum) return {};
 
+  using clock = std::chrono::steady_clock;
+  const auto t0 = clock::now();
+
 #ifdef V8_TARGET_ARCH_32_BIT
   // On 32-bit platforms we need an heuristic here to balance overall memory
   // and address space consumption.
@@ -1005,7 +1020,19 @@ MaybeDirectHandle<WasmMemoryObject> WasmMemoryObject::New(
           ? isolate->factory()->NewJSSharedArrayBuffer(std::move(backing_store))
           : isolate->factory()->NewJSArrayBuffer(std::move(backing_store));
 
-  return New(isolate, buffer, maximum, address_type);
+  auto result = New(isolate, buffer, maximum, address_type);
+
+  const auto t1 = clock::now();
+  const uint64_t elapsed_us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+
+  printf(
+    "[WASM-TRACE] Memory %d -> %d pages (%s) took %" PRIu64 " us\n",
+    initial, maximum,
+    shared == SharedFlag::kShared ? "shared" : "private",
+    elapsed_us
+  );
+
+  return result;
 }
 
 void WasmMemoryObject::UseInInstance(
